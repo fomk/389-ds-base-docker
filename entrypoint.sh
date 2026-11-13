@@ -55,6 +55,37 @@ PY
 )
 dn_tool() { python3 -c "$DN_TOOL_PY" "$@"; }
 
+# Create the root entry of a suffix if it is missing (LDAPI autobind as
+# root). A first attempt interrupted by the server's initial restart can
+# leave the backend without its root entry, and "backend exists" alone does
+# not make the suffix usable.
+ROOT_TOOL_PY=$(cat <<'PY'
+import sys
+
+import ldap
+import ldap.dn
+import ldap.modlist
+
+url, suffix = sys.argv[1], sys.argv[2]
+conn = ldap.initialize(url)
+conn.sasl_non_interactive_bind_s('EXTERNAL')
+try:
+    conn.search_s(suffix, ldap.SCOPE_BASE, attrlist=['1.1'])
+    sys.exit(0)
+except ldap.NO_SUCH_OBJECT:
+    pass
+attr, value, _ = ldap.dn.str2dn(suffix)[0][0]
+classes = {
+    'dc': [b'top', b'domain'],
+    'o': [b'top', b'organization'],
+    'ou': [b'top', b'organizationalUnit'],
+}.get(attr.lower(), [b'top', b'extensibleObject'])
+conn.add_s(suffix, ldap.modlist.addModlist({'objectClass': classes, attr: [value.encode()]}))
+print(f'created root entry {suffix}', file=sys.stderr)
+PY
+)
+ensure_root() { python3 -c "$ROOT_TOOL_PY" "$LDAPI_URL" "$1"; }
+
 if [[ -n "${DS_SUFFIX:-}" ]] && ! dn_tool check "$DS_SUFFIX"; then
     log "DS_SUFFIX=$DS_SUFFIX is not a valid DN"
     exit 1
@@ -120,7 +151,7 @@ wait_dm_password() {
 if [[ -n "${DS_SUFFIX:-}" ]]; then
     deadline=$((SECONDS + ${DS_STARTUP_TIMEOUT:-60} * 2))
     while :; do
-        if wait_healthy && ensure_suffix "$DS_SUFFIX"; then
+        if wait_healthy && ensure_suffix "$DS_SUFFIX" && ensure_root "$DS_SUFFIX"; then
             if wait_dm_password; then
                 log "suffix $DS_SUFFIX ready"
             else
