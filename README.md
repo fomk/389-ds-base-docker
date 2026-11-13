@@ -210,7 +210,7 @@ test expects the default UID `389`.
 ## GitHub Actions and GHCR
 
 [`.github/workflows/image.yml`](.github/workflows/image.yml) builds and tests
-`linux/amd64` images on branch pushes, `v*` tag pushes, pull requests from forks,
+`linux/amd64` images on branch pushes, release tag pushes, pull requests from forks,
 and manual runs. Pull requests from branches of this repository are covered by
 the push build, so they do not trigger a second run. Publication runs only after
 the smoke test passes:
@@ -218,11 +218,21 @@ the smoke test passes:
 | Event | Published tags |
 | --- | --- |
 | Push or manual run on the default branch | `latest`, `sha-<full-commit-sha>` |
-| Push or manual run on a `v*` tag | The exact Git tag, for example `v3.3.1`, plus `sha-<full-commit-sha>` |
+| Push or manual run on a release tag | The exact Git tag, for example `3.3.1`, plus `sha-<full-commit-sha>` |
 | Pull request or another branch | Build and test only |
 
-Git tags name the container release; the upstream server version comes from
-`DS_VERSION` in the Dockerfile. Pushing a tag does not change that build argument.
+Release tags use the upstream 389 Directory Server version, for example `3.3.1`.
+To publish a rebuild of the same server version (for example after a Debian
+update or an entrypoint fix), add a container revision: `3.3.1-1`, `3.3.1-2`.
+The workflow fails if the tag, without its revision suffix, does not match
+`DS_VERSION` in the Dockerfile, so update `DS_VERSION` and `DS_SHA256` before
+tagging a new upstream release:
+
+```sh
+git tag 3.3.1
+git push origin 3.3.1
+```
+
 Use a release tag or commit tag when you need a stable image reference.
 
 The workflow uses Buildx with the GitHub Actions cache and authenticates to GHCR
