@@ -95,6 +95,25 @@ ensure_suffix() {
     dsconf "$LDAPI_URL" backend create --suffix "$suffix" --be-name "$backend" --create-suffix
 }
 
+# dscontainer applies DS_DM_PASSWORD once the server is up, which can be after
+# the suffix exists (the suffix is created over LDAPI without a password).
+# Report the suffix ready only when Directory Manager can bind with it, so
+# that clients waiting for the log line can use the password at once. The
+# password reaches ldapwhoami through a file descriptor, not the command line.
+wait_dm_password() {
+    [[ -n "${DS_DM_PASSWORD:-}" ]] || return 0
+    local deadline=$((SECONDS + ${DS_STARTUP_TIMEOUT:-60}))
+    while ((SECONDS < deadline)); do
+        kill -0 "$pid" 2>/dev/null || return 1
+        if ldapwhoami -x -H "$LDAPI_URL" -D "cn=Directory Manager" \
+            -y <(printf '%s' "$DS_DM_PASSWORD") >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
 # On first start dscontainer briefly runs the server while creating the
 # instance and then restarts it, so a single health check can hit the
 # temporary server. Retry until the suffix exists or the timeout expires.
@@ -102,7 +121,11 @@ if [[ -n "${DS_SUFFIX:-}" ]]; then
     deadline=$((SECONDS + ${DS_STARTUP_TIMEOUT:-60} * 2))
     while :; do
         if wait_healthy && ensure_suffix "$DS_SUFFIX"; then
-            log "suffix $DS_SUFFIX ready"
+            if wait_dm_password; then
+                log "suffix $DS_SUFFIX ready"
+            else
+                log "WARNING: suffix $DS_SUFFIX exists, but the Directory Manager password was not accepted within ${DS_STARTUP_TIMEOUT:-60}s"
+            fi
             break
         fi
         if ((SECONDS >= deadline)) || ! kill -0 "$pid" 2>/dev/null; then

@@ -43,7 +43,9 @@ docker inspect --format '{{.State.Health.Status}}' dirsrv
 First startup creates the instance, generates its initial TLS certificates, and
 creates the requested suffix and root entry. Allow time for initialization.
 The suffix wrapper retries through the server's initial restart; if it cannot
-create the suffix, it logs a warning. The healthcheck tests server availability,
+create the suffix, it logs a warning. It logs `ds-entrypoint: suffix <dn> ready`
+only once the suffix exists and Directory Manager can bind with the configured
+password, so clients may wait for that line. The healthcheck tests server availability,
 so also check the suffix before relying on it.
 
 ## Configuration

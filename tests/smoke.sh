@@ -91,6 +91,13 @@ docker run --rm --entrypoint /bin/sh \
     "$image" -ec 'umask 077; printf "%s\r\n" "$1" > /data/smoke-password' sh "$password"
 
 start
+# The "ready" line promises that the DM password already works.
+for ((i = 0; i < 90; i++)); do
+    docker logs "$name" 2>&1 | grep -q "ds-entrypoint: suffix $suffix ready" && break
+    sleep 1
+done
+docker exec "$name" ldapwhoami -x -H ldap://localhost:3389 \
+    -D 'cn=Directory Manager' -w "$password" >/dev/null
 wait_ready
 [[ "$(docker exec "$name" id -u)" == 389 ]]
 
